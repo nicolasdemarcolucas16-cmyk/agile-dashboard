@@ -81,6 +81,7 @@ export default function Dashboard() {
     fetch(CSV_URL + '&cache=' + Date.now())
       .then((response) => response.text())
       .then((text) => {
+  console.log(text);
         const lines = text.trim().split(/\r?\n/);
         const body = lines.slice(1).filter(Boolean).map(parseCsvLine);
 
