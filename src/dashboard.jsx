@@ -241,6 +241,32 @@ export default function Dashboard() {
     );
   }, [rowsWithData]);
 
+  const projectedMonth = useMemo(() => {
+    if (!current) return 0;
+    const worked = safeNumber(current.diasTrabajados);
+    const notWorked = safeNumber(current.diasNoTrabajados);
+    const totalExpected = worked + notWorked;
+    if (worked === 0 || totalExpected === 0) return 0;
+    return averagePerDay * totalExpected;
+  }, [current, averagePerDay]);
+
+  const gananciaReal = useMemo(() => {
+    if (!current) return 0;
+    return safeNumber(current.pagosChofer) - safeNumber(current.gastosVehiculo);
+  }, [current]);
+
+  const pendienteCobrar = useMemo(() => {
+    if (!current) return 0;
+    return Math.max(0, safeNumber(current.gananciaMensual) - safeNumber(current.pagosChofer));
+  }, [current]);
+
+  const porcentajeCobrado = useMemo(() => {
+    if (!current) return 0;
+    const generado = safeNumber(current.gananciaMensual);
+    if (generado === 0) return 0;
+    return (safeNumber(current.pagosChofer) / generado) * 100;
+  }, [current]);
+
   const handleLogin = () => {
     if (password === '1234') {
       setIsLogged(true);
@@ -605,30 +631,32 @@ export default function Dashboard() {
               accent="blue"
             />
             <StatCard
+              title="Pagos recibidos"
+              value={`$${safeNumber(current.pagosChofer).toLocaleString('es-AR')}`}
+              accent="blue"
+            />
+            <StatCard
               title="Gastos del mes"
               value={`$${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}`}
               accent="red"
             />
             <StatCard
-              title="Ganancia neta"
-              value={`$${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}`}
+              title="Ganancia real"
+              value={`$${safeNumber(gananciaReal).toLocaleString('es-AR')}`}
+              hint="Pagos - gastos"
               accent="green"
             />
             <StatCard
-              title="Días trabajados"
-              value={String(safeNumber(current.diasTrabajados))}
+              title="Pendiente por cobrar"
+              value={`$${safeNumber(pendienteCobrar).toLocaleString('es-AR')}`}
+              hint={`${safeNumber(porcentajeCobrado).toFixed(1)}% cobrado`}
               accent="yellow"
             />
             <StatCard
-              title="Rendimiento"
-              value={`${safeNumber(current.rendimiento).toFixed(2)}%`}
-              accent="blue"
-            />
-            <StatCard
-              title="Vs mes anterior"
-              value={variation === null ? 'Sin dato' : `${variation.toFixed(1)}%`}
-              hint={previous ? `Comparado con ${previous.mes}` : ''}
-              accent={variation !== null && variation >= 0 ? 'green' : 'red'}
+              title="Proyección del mes"
+              value={`$${safeNumber(projectedMonth).toLocaleString('es-AR')}`}
+              hint="Estimación"
+              accent="green"
             />
           </div>
 
@@ -665,12 +693,26 @@ export default function Dashboard() {
                   <strong>${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
+                  <span>Ganancia real al momento</span>
+                  <strong>${safeNumber(gananciaReal).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Pendiente por cobrar</span>
+                  <strong>${safeNumber(pendienteCobrar).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
                   <span>Valor día</span>
                   <strong>${safeNumber(current.valorDia).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
                   <span>Promedio por día</span>
                   <strong>${safeNumber(averagePerDay).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Vs mes anterior</span>
+                  <strong>
+                    {variation === null ? 'Sin dato' : `${safeNumber(variation).toFixed(1)}%`}
+                  </strong>
                 </div>
               </div>
             </div>
@@ -699,16 +741,24 @@ export default function Dashboard() {
             />
             <StatCard
               title="Mejor mes"
-              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
-                safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-              ).mes : '-'}
+              value={
+                rowsWithData.length
+                  ? rowsWithData.reduce((a, b) =>
+                      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
+                    ).mes
+                  : '-'
+              }
               accent="green"
             />
             <StatCard
               title="Peor mes"
-              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
-                safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
-              ).mes : '-'}
+              value={
+                rowsWithData.length
+                  ? rowsWithData.reduce((a, b) =>
+                      safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
+                    ).mes
+                  : '-'
+              }
               accent="red"
             />
           </div>
@@ -726,20 +776,32 @@ export default function Dashboard() {
                     <th>Pagos chofer</th>
                     <th>Gastos</th>
                     <th>Ganancia</th>
+                    <th>Ganancia real</th>
+                    <th>Pendiente</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rowsWithData.map((row, index) => (
-                    <tr key={`${row.mes}-${index}`}>
-                      <td>{row.mes || '-'}</td>
-                      <td>{safeNumber(row.diasTrabajados)}</td>
-                      <td>{safeNumber(row.diasNoTrabajados)}</td>
-                      <td>{safeNumber(row.rendimiento).toFixed(2)}%</td>
-                      <td>${safeNumber(row.pagosChofer).toLocaleString('es-AR')}</td>
-                      <td>${safeNumber(row.gastosVehiculo).toLocaleString('es-AR')}</td>
-                      <td>${safeNumber(row.gananciaMensual).toLocaleString('es-AR')}</td>
-                    </tr>
-                  ))}
+                  {rowsWithData.map((row, index) => {
+                    const real = safeNumber(row.pagosChofer) - safeNumber(row.gastosVehiculo);
+                    const pendiente = Math.max(
+                      0,
+                      safeNumber(row.gananciaMensual) - safeNumber(row.pagosChofer)
+                    );
+
+                    return (
+                      <tr key={`${row.mes}-${index}`}>
+                        <td>{row.mes || '-'}</td>
+                        <td>{safeNumber(row.diasTrabajados)}</td>
+                        <td>{safeNumber(row.diasNoTrabajados)}</td>
+                        <td>{safeNumber(row.rendimiento).toFixed(2)}%</td>
+                        <td>${safeNumber(row.pagosChofer).toLocaleString('es-AR')}</td>
+                        <td>${safeNumber(row.gastosVehiculo).toLocaleString('es-AR')}</td>
+                        <td>${safeNumber(row.gananciaMensual).toLocaleString('es-AR')}</td>
+                        <td>${safeNumber(real).toLocaleString('es-AR')}</td>
+                        <td>${safeNumber(pendiente).toLocaleString('es-AR')}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
