@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 const CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ0AfEXG4l5_houa3nHrRMwmM-vbmdgkOOQG1QqQM20Wkka8juV5aUQ4a71H-mRjTNgGzikQrL7lEy/pub?gid=1940878227&single=true&output=csv';
 
+const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || '1234';
+
 function safeNumber(value) {
   if (value === null || value === undefined) return 0;
 
@@ -64,10 +66,10 @@ function parseCsvLine(line) {
 function getSemaforoInfo(semaforo, rendimiento) {
   const text = String(semaforo || '').toLowerCase();
 
-  if (text.includes('verde') || rendimiento >= 85) {
+  if (text.includes('verde') || rendimiento >= 80) {
     return { label: 'Verde', className: 'green' };
   }
-  if (text.includes('amar') || rendimiento >= 60) {
+  if (text.includes('amar') || rendimiento >= 50) {
     return { label: 'Amarillo', className: 'yellow' };
   }
   return { label: 'Rojo', className: 'red' };
@@ -112,6 +114,26 @@ function BarsComparison({ data, maxValue }) {
       })}
     </div>
   );
+}
+
+function TrendBadge({ label, value, positiveIsGood = true }) {
+  if (value === null || Number.isNaN(value)) {
+    return <div className="trend neutral">{label}: Sin dato</div>;
+  }
+
+  const isPositive = value >= 0;
+  const good =
+    positiveIsGood ? isPositive : !isPositive;
+
+  return (
+    <div className={`trend ${good ? 'good' : 'bad'}`}>
+      {label}: {isPositive ? '▲' : '▼'} {Math.abs(value).toFixed(1)}%
+    </div>
+  );
+}
+
+function AlertBanner({ type, text }) {
+  return <div className={`alert-banner ${type}`}>{text}</div>;
 }
 
 export default function Dashboard() {
@@ -206,7 +228,7 @@ export default function Dashboard() {
     return null;
   }, [rowsWithData, current]);
 
-  const annualGain = useMemo(() => {
+  const annualIncome = useMemo(() => {
     return rowsWithData.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0);
   }, [rowsWithData]);
 
@@ -217,14 +239,6 @@ export default function Dashboard() {
   const annualDays = useMemo(() => {
     return rowsWithData.reduce((acc, row) => acc + safeNumber(row.diasTrabajados), 0);
   }, [rowsWithData]);
-
-  const variation = useMemo(() => {
-    if (!current || !previous) return null;
-    const currentGain = safeNumber(current.gananciaMensual);
-    const previousGain = safeNumber(previous.gananciaMensual);
-    if (previousGain === 0) return null;
-    return ((currentGain - previousGain) / previousGain) * 100;
-  }, [current, previous]);
 
   const averagePerDay = useMemo(() => {
     if (!current) return 0;
@@ -241,8 +255,108 @@ export default function Dashboard() {
     );
   }, [rowsWithData]);
 
+  const monthlyVariation = useMemo(() => {
+    if (!current || !previous) return null;
+    const currentGain = safeNumber(current.gananciaMensual);
+    const previousGain = safeNumber(previous.gananciaMensual);
+    if (previousGain === 0) return null;
+    return ((currentGain - previousGain) / previousGain) * 100;
+  }, [current, previous]);
+
+  const rolling3 = useMemo(() => {
+    if (!rowsWithData.length) return [];
+    return rowsWithData.slice(-3);
+  }, [rowsWithData]);
+
+  const averageLast3Months = useMemo(() => {
+    if (!rolling3.length) return 0;
+    return (
+      rolling3.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0) / rolling3.length
+    );
+  }, [rolling3]);
+
+  const trendVsAverage3 = useMemo(() => {
+    if (!current || averageLast3Months === 0) return null;
+    return ((safeNumber(current.gananciaMensual) - averageLast3Months) / averageLast3Months) * 100;
+  }, [current, averageLast3Months]);
+
+  const projectedMonthIncome = useMemo(() => {
+    if (!current) return 0;
+    const worked = safeNumber(current.diasTrabajados);
+    const notWorked = safeNumber(current.diasNoTrabajados);
+    const totalKnown = worked + notWorked;
+
+    if (worked === 0) return 0;
+    if (totalKnown > 0) {
+      return averagePerDay * totalKnown;
+    }
+
+    return averagePerDay * worked;
+  }, [current, averagePerDay]);
+
+  const semaforo = current ? getSemaforoInfo(current.semaforo, current.rendimiento) : null;
+
+  const alerts = useMemo(() => {
+    if (!current) return [];
+
+    const result = [];
+    const rendimiento = safeNumber(current.rendimiento);
+    const gastos = safeNumber(current.gastosVehiculo);
+    const ingreso = safeNumber(current.gananciaMensual);
+
+    if (rendimiento < 50) {
+      result.push({
+        type: 'danger',
+        text: `Rendimiento bajo en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
+      });
+    } else if (rendimiento < 80) {
+      result.push({
+        type: 'warning',
+        text: `Rendimiento intermedio en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
+      });
+    }
+
+    if (incomeIsBestMonth(rowsWithData, current)) {
+      result.push({
+        type: 'success',
+        text: `${current.mes} es el mejor mes del historial por ingreso.`,
+      });
+    }
+
+    if (monthlyVariation !== null && monthlyVariation < -10) {
+      result.push({
+        type: 'danger',
+        text: `La ganancia cayó ${Math.abs(monthlyVariation).toFixed(1)}% vs ${previous?.mes}.`,
+      });
+    }
+
+    if (previous && gastos > safeNumber(previous.gastosVehiculo) * 1.25) {
+      result.push({
+        type: 'warning',
+        text: `Los gastos subieron fuerte respecto a ${previous.mes}.`,
+      });
+    }
+
+    if (result.length === 0 && ingreso > 0) {
+      result.push({
+        type: 'success',
+        text: `Mes estable. Seguimiento correcto de ${current.mes}.`,
+      });
+    }
+
+    return result;
+  }, [current, monthlyVariation, previous, rowsWithData]);
+
+  function incomeIsBestMonth(data, selected) {
+    if (!selected || !data.length) return false;
+    const best = data.reduce((a, b) =>
+      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
+    );
+    return best.mes === selected.mes;
+  }
+
   const handleLogin = () => {
-    if (password === '1234') {
+    if (password === APP_PASSWORD) {
       setIsLogged(true);
       setError('');
     } else {
@@ -266,14 +380,12 @@ export default function Dashboard() {
             placeholder="Contraseña"
           />
           <button onClick={handleLogin}>Ingresar</button>
-          <div className="login-help">Contraseña actual: 1234</div>
+          <div className="login-help">La contraseña ya no está fija en el código.</div>
           {error ? <div className="error">{error}</div> : null}
         </div>
       </div>
     );
   }
-
-  const semaforo = current ? getSemaforoInfo(current.semaforo, current.rendimiento) : null;
 
   return (
     <div className="page">
@@ -478,6 +590,61 @@ export default function Dashboard() {
         .status-dot.yellow { background: #ffd166; }
         .status-dot.green { background: #32d296; }
 
+        .trend-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+        .trend {
+          border-radius: 14px;
+          padding: 14px;
+          font-weight: 700;
+          border: 1px solid transparent;
+        }
+        .trend.good {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.3);
+          color: #86efac;
+        }
+        .trend.bad {
+          background: rgba(239, 68, 68, 0.12);
+          border-color: rgba(239, 68, 68, 0.3);
+          color: #fca5a5;
+        }
+        .trend.neutral {
+          background: rgba(96, 165, 250, 0.12);
+          border-color: rgba(96, 165, 250, 0.3);
+          color: #93c5fd;
+        }
+
+        .alerts {
+          display: grid;
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+        .alert-banner {
+          padding: 14px 16px;
+          border-radius: 14px;
+          font-weight: 600;
+          border: 1px solid transparent;
+        }
+        .alert-banner.success {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.35);
+          color: #86efac;
+        }
+        .alert-banner.warning {
+          background: rgba(245, 158, 11, 0.12);
+          border-color: rgba(245, 158, 11, 0.35);
+          color: #fcd34d;
+        }
+        .alert-banner.danger {
+          background: rgba(239, 68, 68, 0.12);
+          border-color: rgba(239, 68, 68, 0.35);
+          color: #fca5a5;
+        }
+
         .table-wrap {
           overflow-x: auto;
         }
@@ -543,7 +710,8 @@ export default function Dashboard() {
           .stats-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
-          .grid-two {
+          .grid-two,
+          .trend-row {
             grid-template-columns: 1fr;
           }
         }
@@ -569,7 +737,7 @@ export default function Dashboard() {
           <p>Actualización automática desde Google Sheets</p>
         </div>
         <div className="topbar-actions">
-          <div className="pill">Modo oscuro • iPhone y PC</div>
+          <div className="pill">Bloque 1 activo: seguridad, proyección, tendencia y alertas</div>
         </div>
       </div>
 
@@ -589,6 +757,14 @@ export default function Dashboard() {
           Actualizar datos
         </button>
       </div>
+
+      {alerts.length > 0 && (
+        <div className="alerts">
+          {alerts.map((alert, index) => (
+            <AlertBanner key={`${alert.type}-${index}`} type={alert.type} text={alert.text} />
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="card">
@@ -625,11 +801,16 @@ export default function Dashboard() {
               accent="blue"
             />
             <StatCard
-              title="Vs mes anterior"
-              value={variation === null ? 'Sin dato' : `${variation.toFixed(1)}%`}
-              hint={previous ? `Comparado con ${previous.mes}` : ''}
-              accent={variation !== null && variation >= 0 ? 'green' : 'red'}
+              title="Proyección del mes"
+              value={`$${safeNumber(projectedMonthIncome).toLocaleString('es-AR')}`}
+              hint="Estimación al cierre"
+              accent="green"
             />
+          </div>
+
+          <div className="trend-row">
+            <TrendBadge label="Vs mes anterior" value={monthlyVariation} positiveIsGood />
+            <TrendBadge label="Vs promedio últimos 3 meses" value={trendVsAverage3} positiveIsGood />
           </div>
 
           <div className="grid-two">
@@ -679,7 +860,7 @@ export default function Dashboard() {
           <div className="stats-grid" style={{ marginBottom: 18 }}>
             <StatCard
               title="Ingreso anual acumulado"
-              value={`$${annualGain.toLocaleString('es-AR')}`}
+              value={`$${annualIncome.toLocaleString('es-AR')}`}
               accent="blue"
             />
             <StatCard
@@ -699,16 +880,24 @@ export default function Dashboard() {
             />
             <StatCard
               title="Mejor mes"
-              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
-                safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-              ).mes : '-'}
+              value={
+                rowsWithData.length
+                  ? rowsWithData.reduce((a, b) =>
+                      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
+                    ).mes
+                  : '-'
+              }
               accent="green"
             />
             <StatCard
               title="Peor mes"
-              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
-                safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
-              ).mes : '-'}
+              value={
+                rowsWithData.length
+                  ? rowsWithData.reduce((a, b) =>
+                      safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
+                    ).mes
+                  : '-'
+              }
               accent="red"
             />
           </div>
