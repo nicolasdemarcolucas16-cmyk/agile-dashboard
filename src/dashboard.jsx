@@ -161,20 +161,43 @@ export default function Dashboard() {
       });
   }, []);
 
-  const current = useMemo(() => {
-    if (!rows.length) return null;
-    return rows[rows.length - 1];
+  const rowsWithData = useMemo(() => {
+    return rows.filter(
+      (row) =>
+        safeNumber(row.gananciaMensual) > 0 ||
+        safeNumber(row.diasTrabajados) > 0 ||
+        safeNumber(row.gananciaNetaMensual) > 0
+    );
   }, [rows]);
 
-  const annualGain = useMemo(
-    () => rows.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0),
-    [rows]
-  );
+  const current = useMemo(() => {
+    if (!rows.length) return null;
+
+    if (rowsWithData.length > 0) {
+      return rowsWithData[rowsWithData.length - 1];
+    }
+
+    return rows[rows.length - 1];
+  }, [rows, rowsWithData]);
+
+  const annualGain = useMemo(() => {
+    return rowsWithData.reduce(
+      (acc, row) => acc + safeNumber(row.gananciaMensual),
+      0
+    );
+  }, [rowsWithData]);
 
   const previous = useMemo(() => {
-    if (!current || rows.length < 2) return null;
-    return rows[rows.length - 2];
-  }, [rows, current]);
+    if (!current || rowsWithData.length < 2) return null;
+
+    const currentIndex = rowsWithData.findIndex((row) => row.mes === current.mes);
+
+    if (currentIndex > 0) {
+      return rowsWithData[currentIndex - 1];
+    }
+
+    return null;
+  }, [rowsWithData, current]);
 
   const variation = useMemo(() => {
     if (!current || !previous) return null;
@@ -188,9 +211,9 @@ export default function Dashboard() {
   }, [current, previous]);
 
   const maxGain = useMemo(() => {
-    if (!rows.length) return 0;
-    return Math.max(...rows.map((r) => safeNumber(r.gananciaMensual)), 0);
-  }, [rows]);
+    if (!rowsWithData.length) return 0;
+    return Math.max(...rowsWithData.map((r) => safeNumber(r.gananciaMensual)), 0);
+  }, [rowsWithData]);
 
   const handleLogin = () => {
     if (password === '1234') {
@@ -274,7 +297,7 @@ export default function Dashboard() {
           <div className="grid-two">
             <div className="card">
               <h2>Ganancia por mes</h2>
-              <BarMini data={rows} maxValue={maxGain} />
+              <BarMini data={rowsWithData} maxValue={maxGain} />
             </div>
 
             <div className="card">
@@ -322,7 +345,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, index) => (
+                  {rowsWithData.map((row, index) => (
                     <tr key={`${row.mes}-${index}`}>
                       <td>{row.mes || '-'}</td>
                       <td>{safeNumber(row.diasTrabajados)}</td>
