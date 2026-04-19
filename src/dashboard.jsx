@@ -61,7 +61,7 @@ function BarMini({ data, maxValue }) {
         const height = maxValue > 0 ? Math.max(10, (item.ganancia / maxValue) * 140) : 10;
         return (
           <div key={item.mes} className="bar-wrap">
-            <div className="bar-label-top">${item.ganancia.toLocaleString('es-AR')}</div>
+            <div className="bar-label-top">${item.( current.ganancia || 0).toLocaleString('es-AR')}</div>
             <div className="bar" style={{ height: `${height}px` }} />
             <div className="bar-label">{item.mes}</div>
           </div>
