@@ -6,33 +6,17 @@ const CSV_URL =
 const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || '1234';
 
 function safeNumber(value) {
-  if (value === null || value === undefined) return 0;
-
-  let str = String(value).trim();
-  if (!str) return 0;
-
-  str = str.replace(/[^0-9,.-]/g, '');
-
+  if (!value) return 0;
+  let str = String(value).replace(/[^0-9,.-]/g, '');
   const lastComma = str.lastIndexOf(',');
   const lastDot = str.lastIndexOf('.');
-
-  if (lastComma > lastDot) {
-    str = str.replace(/\./g, '').replace(',', '.');
-  } else if (lastDot > lastComma) {
-    str = str.replace(/,/g, '');
-  } else {
-    str = str.replace(',', '.');
-  }
-
-  const num = Number(str);
-  return Number.isFinite(num) ? num : 0;
+  if (lastComma > lastDot) str = str.replace(/\./g, '').replace(',', '.');
+  else str = str.replace(/,/g, '');
+  return Number(str) || 0;
 }
 
 function safePercent(value) {
-  if (value === null || value === undefined) return 0;
-  const cleaned = String(value).replace('%', '').replace(',', '.').trim();
-  const num = Number(cleaned);
-  return Number.isFinite(num) ? num : 0;
+  return Number(String(value).replace('%', '').replace(',', '.')) || 0;
 }
 
 function parseCsvLine(line) {
@@ -40,14 +24,14 @@ function parseCsvLine(line) {
   let current = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i += 1) {
+  for (let i = 0; i < line.length; i++) {
     const char = line[i];
     const next = line[i + 1];
 
     if (char === '"') {
       if (inQuotes && next === '"') {
         current += '"';
-        i += 1;
+        i++;
       } else {
         inQuotes = !inQuotes;
       }
@@ -58,888 +42,134 @@ function parseCsvLine(line) {
       current += char;
     }
   }
-
   result.push(current);
-  return result.map((cell) => cell.trim());
+  return result;
 }
 
-function getSemaforoInfo(semaforo, rendimiento) {
-  const text = String(semaforo || '').toLowerCase();
-
-  if (text.includes('verde') || rendimiento >= 80) {
-    return { label: 'Verde', className: 'green' };
-  }
-  if (text.includes('amar') || rendimiento >= 50) {
-    return { label: 'Amarillo', className: 'yellow' };
-  }
-  return { label: 'Rojo', className: 'red' };
-}
-
-function StatCard({ title, value, hint, accent = 'blue' }) {
-  return (
-    <div className={`card stat-card accent-${accent}`}>
-      <div className="stat-title">{title}</div>
-      <div className="stat-value">{value}</div>
-      {hint ? <div className="stat-hint">{hint}</div> : null}
-    </div>
-  );
-}
-
-function BarsComparison({ data, maxValue }) {
-  return (
-    <div className="bars-comparison">
-      {data.map((item, index) => {
-        const ingresos = safeNumber(item.gananciaMensual);
-        const gastos = safeNumber(item.gastosVehiculo);
-        const ingresoHeight = maxValue > 0 ? Math.max(10, (ingresos / maxValue) * 140) : 10;
-        const gastoHeight = maxValue > 0 ? Math.max(10, (gastos / maxValue) * 140) : 10;
-
-        return (
-          <div key={`${item.mes}-${index}`} className="bar-group">
-            <div className="bar-values">
-              <span>${ingresos.toLocaleString('es-AR')}</span>
-              <span>${gastos.toLocaleString('es-AR')}</span>
-            </div>
-            <div className="bar-pair">
-              <div className="bar ingreso" style={{ height: `${ingresoHeight}px` }} />
-              <div className="bar gasto" style={{ height: `${gastoHeight}px` }} />
-            </div>
-            <div className="bar-legend">
-              <span className="legend ingreso-dot">Ingreso</span>
-              <span className="legend gasto-dot">Gasto</span>
-            </div>
-            <div className="bar-label">{item.mes || '-'}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TrendBadge({ label, value, positiveIsGood = true }) {
-  if (value === null || Number.isNaN(value)) {
-    return <div className="trend neutral">{label}: Sin dato</div>;
-  }
-
-  const isPositive = value >= 0;
-  const good =
-    positiveIsGood ? isPositive : !isPositive;
-
-  return (
-    <div className={`trend ${good ? 'good' : 'bad'}`}>
-      {label}: {isPositive ? '▲' : '▼'} {Math.abs(value).toFixed(1)}%
-    </div>
-  );
-}
-
-function AlertBanner({ type, text }) {
-  return <div className={`alert-banner ${type}`}>{text}</div>;
+function getDebtStatus(debt) {
+  if (debt <= 0) return { label: 'Al día', color: 'green' };
+  if (debt < 300000) return { label: 'Atraso leve (<1 semana)', color: 'yellow' };
+  if (debt <= 600000) return { label: 'Atraso >1 semana', color: 'orange' };
+  return { label: 'Atraso crítico', color: 'red' };
 }
 
 export default function Dashboard() {
   const [rows, setRows] = useState([]);
   const [password, setPassword] = useState('');
   const [isLogged, setIsLogged] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState('ultimo');
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    setLoading(true);
-
-    fetch(CSV_URL + '&cache=' + Date.now() + '-' + refreshKey)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Error HTTP ${response.status}`);
-        }
-        return response.text();
-      })
+    fetch(CSV_URL + '&t=' + Date.now())
+      .then((r) => r.text())
       .then((text) => {
-        const lines = text
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter((line) => line !== '');
+        const lines = text.split('\n').filter((l) => l.trim());
+        const data = lines.slice(1).map(parseCsvLine);
 
-        if (lines.length <= 1) {
-          setRows([]);
-          setError('El CSV no tiene datos visibles.');
-          setLoading(false);
-          return;
-        }
-
-        const body = lines.slice(1).map(parseCsvLine);
-
-        const parsed = body
-          .filter((r) => r && r.length >= 11)
-          .map((r) => ({
-            semaforo: r[0] || '',
-            mes: (r[1] || '').trim(),
-            diasTrabajados: safeNumber(r[2]),
-            diasNoTrabajados: safeNumber(r[3]),
-            rendimiento: safePercent(r[4]),
-            gananciaNetaMensual: safeNumber(r[5]),
-            pagosChofer: safeNumber(r[6]),
-            gastosVehiculo: safeNumber(r[7]),
-            gananciaMensual: safeNumber(r[8]),
-            valorDia: safeNumber(r[9]),
-            gananciaAnual: safeNumber(r[10]),
-          }))
-          .filter((row) => row.mes !== '' && row.mes.toLowerCase() !== 'mes');
+        const parsed = data.map((r) => ({
+          mes: r[1],
+          diasTrabajados: safeNumber(r[2]),
+          diasNoTrabajados: safeNumber(r[3]),
+          rendimiento: safePercent(r[4]),
+          gananciaMensual: safeNumber(r[8]),
+          pagosChofer: safeNumber(r[6]),
+          gastos: safeNumber(r[7]),
+        }));
 
         setRows(parsed);
-        setError(parsed.length === 0 ? 'No se encontraron filas válidas en la hoja Ganancias.' : '');
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError(`No se pudo cargar el Google Sheets: ${err.message}`);
-        setRows([]);
-        setLoading(false);
       });
-  }, [refreshKey]);
+  }, []);
 
-  const rowsWithData = useMemo(() => {
-    return rows.filter(
-      (row) =>
-        safeNumber(row.gananciaMensual) > 0 ||
-        safeNumber(row.diasTrabajados) > 0 ||
-        safeNumber(row.gananciaNetaMensual) > 0 ||
-        safeNumber(row.gastosVehiculo) > 0
-    );
-  }, [rows]);
+  const rowsWithData = rows.filter((r) => r.mes);
 
-  const availableMonths = useMemo(() => rowsWithData.map((row) => row.mes), [rowsWithData]);
+  const current =
+    selectedMonth === 'ultimo'
+      ? rowsWithData[rowsWithData.length - 1]
+      : rowsWithData.find((r) => r.mes === selectedMonth);
 
-  const current = useMemo(() => {
-    if (!rowsWithData.length) return null;
+  const previous = rowsWithData[rowsWithData.length - 2];
 
-    if (selectedMonth === 'ultimo') {
-      return rowsWithData[rowsWithData.length - 1];
-    }
+  const deudaMes = current
+    ? current.gananciaMensual - current.pagosChofer
+    : 0;
 
-    return rowsWithData.find((row) => row.mes === selectedMonth) || rowsWithData[rowsWithData.length - 1];
-  }, [rowsWithData, selectedMonth]);
+  const deudaAcumulada = rowsWithData.reduce(
+    (acc, r) => acc + (r.gananciaMensual - r.pagosChofer),
+    0
+  );
 
-  const previous = useMemo(() => {
-    if (!current || rowsWithData.length < 2) return null;
-    const currentIndex = rowsWithData.findIndex((row) => row.mes === current.mes);
-    if (currentIndex > 0) return rowsWithData[currentIndex - 1];
-    return null;
-  }, [rowsWithData, current]);
+  const deudaStatus = getDebtStatus(deudaMes);
 
-  const annualIncome = useMemo(() => {
-    return rowsWithData.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0);
-  }, [rowsWithData]);
+  const porcentajePago = current
+    ? (current.pagosChofer / current.gananciaMensual) * 100 || 0
+    : 0;
 
-  const annualExpenses = useMemo(() => {
-    return rowsWithData.reduce((acc, row) => acc + safeNumber(row.gastosVehiculo), 0);
-  }, [rowsWithData]);
+  const promedioDia =
+    current && current.diasTrabajados > 0
+      ? current.gananciaMensual / current.diasTrabajados
+      : 0;
 
-  const annualDays = useMemo(() => {
-    return rowsWithData.reduce((acc, row) => acc + safeNumber(row.diasTrabajados), 0);
-  }, [rowsWithData]);
+  const proyeccion =
+    promedioDia * (current?.diasTrabajados + current?.diasNoTrabajados || 0);
 
-  const averagePerDay = useMemo(() => {
-    if (!current) return 0;
-    const days = safeNumber(current.diasTrabajados);
-    if (days === 0) return 0;
-    return safeNumber(current.gananciaMensual) / days;
-  }, [current]);
-
-  const maxChartValue = useMemo(() => {
-    if (!rowsWithData.length) return 0;
-    return Math.max(
-      ...rowsWithData.flatMap((r) => [safeNumber(r.gananciaMensual), safeNumber(r.gastosVehiculo)]),
-      0
-    );
-  }, [rowsWithData]);
-
-  const monthlyVariation = useMemo(() => {
-    if (!current || !previous) return null;
-    const currentGain = safeNumber(current.gananciaMensual);
-    const previousGain = safeNumber(previous.gananciaMensual);
-    if (previousGain === 0) return null;
-    return ((currentGain - previousGain) / previousGain) * 100;
-  }, [current, previous]);
-
-  const rolling3 = useMemo(() => {
-    if (!rowsWithData.length) return [];
-    return rowsWithData.slice(-3);
-  }, [rowsWithData]);
-
-  const averageLast3Months = useMemo(() => {
-    if (!rolling3.length) return 0;
-    return (
-      rolling3.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0) / rolling3.length
-    );
-  }, [rolling3]);
-
-  const trendVsAverage3 = useMemo(() => {
-    if (!current || averageLast3Months === 0) return null;
-    return ((safeNumber(current.gananciaMensual) - averageLast3Months) / averageLast3Months) * 100;
-  }, [current, averageLast3Months]);
-
-  const projectedMonthIncome = useMemo(() => {
-    if (!current) return 0;
-    const worked = safeNumber(current.diasTrabajados);
-    const notWorked = safeNumber(current.diasNoTrabajados);
-    const totalKnown = worked + notWorked;
-
-    if (worked === 0) return 0;
-    if (totalKnown > 0) {
-      return averagePerDay * totalKnown;
-    }
-
-    return averagePerDay * worked;
-  }, [current, averagePerDay]);
-
-  const semaforo = current ? getSemaforoInfo(current.semaforo, current.rendimiento) : null;
-
-  const alerts = useMemo(() => {
-    if (!current) return [];
-
-    const result = [];
-    const rendimiento = safeNumber(current.rendimiento);
-    const gastos = safeNumber(current.gastosVehiculo);
-    const ingreso = safeNumber(current.gananciaMensual);
-
-    if (rendimiento < 50) {
-      result.push({
-        type: 'danger',
-        text: `Rendimiento bajo en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
-      });
-    } else if (rendimiento < 80) {
-      result.push({
-        type: 'warning',
-        text: `Rendimiento intermedio en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
-      });
-    }
-
-    if (incomeIsBestMonth(rowsWithData, current)) {
-      result.push({
-        type: 'success',
-        text: `${current.mes} es el mejor mes del historial por ingreso.`,
-      });
-    }
-
-    if (monthlyVariation !== null && monthlyVariation < -10) {
-      result.push({
-        type: 'danger',
-        text: `La ganancia cayó ${Math.abs(monthlyVariation).toFixed(1)}% vs ${previous?.mes}.`,
-      });
-    }
-
-    if (previous && gastos > safeNumber(previous.gastosVehiculo) * 1.25) {
-      result.push({
-        type: 'warning',
-        text: `Los gastos subieron fuerte respecto a ${previous.mes}.`,
-      });
-    }
-
-    if (result.length === 0 && ingreso > 0) {
-      result.push({
-        type: 'success',
-        text: `Mes estable. Seguimiento correcto de ${current.mes}.`,
-      });
-    }
-
-    return result;
-  }, [current, monthlyVariation, previous, rowsWithData]);
-
-  function incomeIsBestMonth(data, selected) {
-    if (!selected || !data.length) return false;
-    const best = data.reduce((a, b) =>
-      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-    );
-    return best.mes === selected.mes;
-  }
-
-  const handleLogin = () => {
-    if (password === APP_PASSWORD) {
-      setIsLogged(true);
-      setError('');
-    } else {
-      setError('Contraseña incorrecta.');
-    }
-  };
+  const variacion =
+    current && previous
+      ? ((current.gananciaMensual - previous.gananciaMensual) /
+          previous.gananciaMensual) *
+        100
+      : 0;
 
   if (!isLogged) {
     return (
-      <div className="login-page">
-        <div className="card login-card">
-          <h1>🔒 Acceso privado</h1>
-          <p>Ingresá tu contraseña para ver el tablero del Agile.</p>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setError('');
-            }}
-            placeholder="Contraseña"
-          />
-          <button onClick={handleLogin}>Ingresar</button>
-          <div className="login-help">La contraseña ya no está fija en el código.</div>
-          {error ? <div className="error">{error}</div> : null}
-        </div>
+      <div style={{ padding: 40 }}>
+        <h2>Acceso</h2>
+        <input
+          type="password"
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <button onClick={() => password === APP_PASSWORD && setIsLogged(true)}>
+          Ingresar
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="page">
-      <style>{`
-        * { box-sizing: border-box; }
-        body {
-          margin: 0;
-          font-family: Arial, Helvetica, sans-serif;
-          background: #07142b;
-          color: #e8eefc;
-        }
-        .page {
-          padding: 20px;
-          max-width: 1280px;
-          margin: 0 auto;
-        }
-        .topbar {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 16px;
-          margin-bottom: 18px;
-          flex-wrap: wrap;
-        }
-        .topbar h1 {
-          margin: 0;
-          font-size: 28px;
-        }
-        .topbar p {
-          margin: 8px 0 0;
-          color: #9bb0d3;
-        }
-        .topbar-actions {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .pill {
-          background: #0d1c39;
-          border: 1px solid #203760;
-          padding: 10px 14px;
-          border-radius: 999px;
-          color: #d5e2fb;
-          font-size: 14px;
-        }
-        .card {
-          background: #08162f;
-          border: 1px solid #1d345b;
-          border-radius: 22px;
-          padding: 18px;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.18);
-        }
-        .filters {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          margin-bottom: 18px;
-          flex-wrap: wrap;
-        }
-        .filters select,
-        .filters button,
-        .login-card button {
-          background: #112446;
-          color: white;
-          border: 1px solid #28436f;
-          border-radius: 12px;
-          padding: 10px 14px;
-          font-size: 14px;
-          cursor: pointer;
-        }
-        .filters button:hover,
-        .login-card button:hover {
-          opacity: 0.95;
-        }
-        .filters select {
-          min-width: 190px;
-        }
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
-          gap: 14px;
-          margin-bottom: 18px;
-        }
-        .stat-card {
-          min-height: 120px;
-        }
-        .stat-title {
-          color: #9bb0d3;
-          font-size: 14px;
-          margin-bottom: 10px;
-        }
-        .stat-value {
-          font-size: 20px;
-          font-weight: 700;
-          line-height: 1.2;
-        }
-        .stat-hint {
-          margin-top: 8px;
-          color: #72b3ff;
-          font-size: 13px;
-        }
-        .accent-blue { border-color: #1f63c0; }
-        .accent-green { border-color: #1c8d63; }
-        .accent-red { border-color: #a53b4f; }
-        .accent-yellow { border-color: #b2892c; }
+    <div style={{ padding: 20 }}>
+      <h1>AGILE DASHBOARD PRO</h1>
 
-        .grid-two {
-          display: grid;
-          grid-template-columns: 1.2fr 0.8fr;
-          gap: 16px;
-          margin-bottom: 18px;
-        }
-        .bars-comparison {
-          display: flex;
-          align-items: end;
-          gap: 18px;
-          min-height: 250px;
-          overflow-x: auto;
-          padding-top: 14px;
-        }
-        .bar-group {
-          min-width: 140px;
-          text-align: center;
-        }
-        .bar-values {
-          display: flex;
-          justify-content: space-between;
-          gap: 8px;
-          color: #a9c9ff;
-          font-size: 11px;
-          min-height: 32px;
-        }
-        .bar-pair {
-          display: flex;
-          align-items: end;
-          justify-content: center;
-          gap: 8px;
-          height: 160px;
-        }
-        .bar {
-          width: 28px;
-          border-radius: 12px 12px 0 0;
-        }
-        .bar.ingreso {
-          background: linear-gradient(180deg, #3cb8ff 0%, #2563eb 100%);
-        }
-        .bar.gasto {
-          background: linear-gradient(180deg, #ff9b57 0%, #d35400 100%);
-        }
-        .bar-label {
-          margin-top: 8px;
-          font-size: 14px;
-          color: #e8eefc;
-        }
-        .bar-legend {
-          margin-top: 8px;
-          display: flex;
-          justify-content: center;
-          gap: 10px;
-          font-size: 12px;
-          color: #9bb0d3;
-        }
-        .legend::before {
-          content: '';
-          display: inline-block;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          margin-right: 6px;
-        }
-        .ingreso-dot::before { background: #3cb8ff; }
-        .gasto-dot::before { background: #ff9b57; }
+      <select onChange={(e) => setSelectedMonth(e.target.value)}>
+        <option value="ultimo">Último</option>
+        {rowsWithData.map((r) => (
+          <option key={r.mes}>{r.mes}</option>
+        ))}
+      </select>
 
-        .detail-list {
-          display: grid;
-          gap: 12px;
-        }
-        .detail-list div {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          padding-bottom: 10px;
-          border-bottom: 1px solid #142748;
-        }
-        .detail-list span {
-          color: #9bb0d3;
-        }
-        .status-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-weight: 700;
-        }
-        .status-dot {
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          display: inline-block;
-        }
-        .status-dot.red { background: #ff5f7a; }
-        .status-dot.yellow { background: #ffd166; }
-        .status-dot.green { background: #32d296; }
+      <h2>{current?.mes}</h2>
 
-        .trend-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-        .trend {
-          border-radius: 14px;
-          padding: 14px;
-          font-weight: 700;
-          border: 1px solid transparent;
-        }
-        .trend.good {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.3);
-          color: #86efac;
-        }
-        .trend.bad {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.3);
-          color: #fca5a5;
-        }
-        .trend.neutral {
-          background: rgba(96, 165, 250, 0.12);
-          border-color: rgba(96, 165, 250, 0.3);
-          color: #93c5fd;
-        }
+      <div>
+        <p>Ingreso: ${current?.gananciaMensual?.toLocaleString()}</p>
+        <p>Pagado: ${current?.pagosChofer?.toLocaleString()}</p>
+        <p>Gastos: ${current?.gastos?.toLocaleString()}</p>
 
-        .alerts {
-          display: grid;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-        .alert-banner {
-          padding: 14px 16px;
-          border-radius: 14px;
-          font-weight: 600;
-          border: 1px solid transparent;
-        }
-        .alert-banner.success {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.35);
-          color: #86efac;
-        }
-        .alert-banner.warning {
-          background: rgba(245, 158, 11, 0.12);
-          border-color: rgba(245, 158, 11, 0.35);
-          color: #fcd34d;
-        }
-        .alert-banner.danger {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.35);
-          color: #fca5a5;
-        }
+        <hr />
 
-        .table-wrap {
-          overflow-x: auto;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        th, td {
-          text-align: left;
-          padding: 12px 10px;
-          border-bottom: 1px solid #142748;
-        }
-        th {
-          color: #72b3ff;
-          font-weight: 600;
-        }
-        .login-page {
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 24px;
-        }
-        .login-card {
-          width: 100%;
-          max-width: 420px;
-        }
-        .login-card h1 {
-          margin-top: 0;
-        }
-        .login-card p {
-          color: #9bb0d3;
-        }
-        .login-card input {
-          width: 100%;
-          padding: 14px 16px;
-          border-radius: 14px;
-          border: 1px solid #334155;
-          background: #020617;
-          color: white;
-          margin-top: 12px;
-          margin-bottom: 12px;
-          font-size: 16px;
-        }
-        .login-help {
-          margin-top: 12px;
-          color: #9bb0d3;
-          font-size: 13px;
-        }
-        .error, .error-banner {
-          margin-top: 12px;
-          color: #fecaca;
-          background: rgba(127, 29, 29, 0.35);
-          border: 1px solid rgba(248, 113, 113, 0.4);
-          padding: 12px;
-          border-radius: 12px;
-        }
-        .error-banner {
-          margin-bottom: 18px;
-        }
+        <h3>💰 Deuda del chofer</h3>
+        <p>${deudaMes.toLocaleString()}</p>
+        <p>{deudaStatus.label}</p>
 
-        @media (max-width: 1100px) {
-          .stats-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-          .grid-two,
-          .trend-row {
-            grid-template-columns: 1fr;
-          }
-        }
-        @media (max-width: 700px) {
-          .page {
-            padding: 14px;
-          }
-          .stats-grid {
-            grid-template-columns: 1fr;
-          }
-          .topbar h1 {
-            font-size: 24px;
-          }
-          .stat-value {
-            font-size: 24px;
-          }
-        }
-      `}</style>
+        <h4>Acumulada: ${deudaAcumulada.toLocaleString()}</h4>
 
-      <div className="topbar">
-        <div>
-          <h1>AGILE DASHBOARD PRO</h1>
-          <p>Actualización automática desde Google Sheets</p>
-        </div>
-        <div className="topbar-actions">
-          <div className="pill">Bloque 1 activo: seguridad, proyección, tendencia y alertas</div>
-        </div>
+        <p>Pagó: {porcentajePago.toFixed(1)}%</p>
+
+        <hr />
+
+        <h3>📊 Proyección</h3>
+        <p>${proyeccion.toLocaleString()}</p>
+
+        <h3>📈 Tendencia</h3>
+        <p>{variacion.toFixed(1)}%</p>
       </div>
-
-      {error ? <div className="error-banner">{error}</div> : null}
-
-      <div className="filters">
-        <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-          <option value="ultimo">Último mes con datos</option>
-          {availableMonths.map((month) => (
-            <option key={month} value={month}>
-              {month}
-            </option>
-          ))}
-        </select>
-
-        <button onClick={() => setRefreshKey((prev) => prev + 1)}>
-          Actualizar datos
-        </button>
-      </div>
-
-      {alerts.length > 0 && (
-        <div className="alerts">
-          {alerts.map((alert, index) => (
-            <AlertBanner key={`${alert.type}-${index}`} type={alert.type} text={alert.text} />
-          ))}
-        </div>
-      )}
-
-      {loading ? (
-        <div className="card">
-          <h2>Cargando datos...</h2>
-          <p>Esperando respuesta de la hoja Ganancias.</p>
-        </div>
-      ) : current ? (
-        <>
-          <div className="stats-grid">
-            <StatCard
-              title="Ingreso del mes"
-              value={`$${safeNumber(current.gananciaMensual).toLocaleString('es-AR')}`}
-              hint={current.mes}
-              accent="blue"
-            />
-            <StatCard
-              title="Gastos del mes"
-              value={`$${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}`}
-              accent="red"
-            />
-            <StatCard
-              title="Ganancia neta"
-              value={`$${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}`}
-              accent="green"
-            />
-            <StatCard
-              title="Días trabajados"
-              value={String(safeNumber(current.diasTrabajados))}
-              accent="yellow"
-            />
-            <StatCard
-              title="Rendimiento"
-              value={`${safeNumber(current.rendimiento).toFixed(2)}%`}
-              accent="blue"
-            />
-            <StatCard
-              title="Proyección del mes"
-              value={`$${safeNumber(projectedMonthIncome).toLocaleString('es-AR')}`}
-              hint="Estimación al cierre"
-              accent="green"
-            />
-          </div>
-
-          <div className="trend-row">
-            <TrendBadge label="Vs mes anterior" value={monthlyVariation} positiveIsGood />
-            <TrendBadge label="Vs promedio últimos 3 meses" value={trendVsAverage3} positiveIsGood />
-          </div>
-
-          <div className="grid-two">
-            <div className="card">
-              <h2>Ingresos vs gastos por mes</h2>
-              <BarsComparison data={rowsWithData} maxValue={maxChartValue} />
-            </div>
-
-            <div className="card">
-              <h2>Mes seleccionado</h2>
-              <div className="detail-list">
-                <div>
-                  <span>Mes</span>
-                  <strong>{current.mes || '-'}</strong>
-                </div>
-                <div>
-                  <span>Semáforo</span>
-                  <strong className="status-badge">
-                    <span className={`status-dot ${semaforo.className}`} />
-                    {semaforo.label}
-                  </strong>
-                </div>
-                <div>
-                  <span>Pagos del chofer</span>
-                  <strong>${safeNumber(current.pagosChofer).toLocaleString('es-AR')}</strong>
-                </div>
-                <div>
-                  <span>Gastos del vehículo</span>
-                  <strong>${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}</strong>
-                </div>
-                <div>
-                  <span>Ganancia neta mensual</span>
-                  <strong>${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}</strong>
-                </div>
-                <div>
-                  <span>Valor día</span>
-                  <strong>${safeNumber(current.valorDia).toLocaleString('es-AR')}</strong>
-                </div>
-                <div>
-                  <span>Promedio por día</span>
-                  <strong>${safeNumber(averagePerDay).toLocaleString('es-AR')}</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="stats-grid" style={{ marginBottom: 18 }}>
-            <StatCard
-              title="Ingreso anual acumulado"
-              value={`$${annualIncome.toLocaleString('es-AR')}`}
-              accent="blue"
-            />
-            <StatCard
-              title="Gastos anuales"
-              value={`$${annualExpenses.toLocaleString('es-AR')}`}
-              accent="red"
-            />
-            <StatCard
-              title="Días trabajados anuales"
-              value={String(annualDays)}
-              accent="yellow"
-            />
-            <StatCard
-              title="Meses con datos"
-              value={String(rowsWithData.length)}
-              accent="green"
-            />
-            <StatCard
-              title="Mejor mes"
-              value={
-                rowsWithData.length
-                  ? rowsWithData.reduce((a, b) =>
-                      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-                    ).mes
-                  : '-'
-              }
-              accent="green"
-            />
-            <StatCard
-              title="Peor mes"
-              value={
-                rowsWithData.length
-                  ? rowsWithData.reduce((a, b) =>
-                      safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
-                    ).mes
-                  : '-'
-              }
-              accent="red"
-            />
-          </div>
-
-          <div className="card">
-            <h2>Resumen mensual</h2>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Mes</th>
-                    <th>Días trabajados</th>
-                    <th>Días no trabajados</th>
-                    <th>Rendimiento</th>
-                    <th>Pagos chofer</th>
-                    <th>Gastos</th>
-                    <th>Ganancia</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rowsWithData.map((row, index) => (
-                    <tr key={`${row.mes}-${index}`}>
-                      <td>{row.mes || '-'}</td>
-                      <td>{safeNumber(row.diasTrabajados)}</td>
-                      <td>{safeNumber(row.diasNoTrabajados)}</td>
-                      <td>{safeNumber(row.rendimiento).toFixed(2)}%</td>
-                      <td>${safeNumber(row.pagosChofer).toLocaleString('es-AR')}</td>
-                      <td>${safeNumber(row.gastosVehiculo).toLocaleString('es-AR')}</td>
-                      <td>${safeNumber(row.gananciaMensual).toLocaleString('es-AR')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="card">
-          <h2>Sin datos para mostrar</h2>
-          <p>La app cargó, pero no encontró filas válidas en la hoja Ganancias.</p>
-        </div>
-      )}
     </div>
   );
 }
