@@ -78,7 +78,7 @@ export default function Dashboard() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(CSV_URL)
+    fetch(CSV_URL + '&cache=' + Date.now())
       .then((response) => response.text())
       .then((text) => {
         const lines = text.trim().split(/\r?\n/);
