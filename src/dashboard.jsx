@@ -5,15 +5,24 @@ const CSV_URL =
 
 function safeNumber(value) {
   if (value === null || value === undefined) return 0;
-  const str = String(value).trim();
+
+  let str = String(value).trim();
   if (!str) return 0;
 
-  const cleaned = str
-    .replace(/[^0-9,.-]/g, '')
-    .replace(/\.(?=\d{3}(\D|$))/g, '')
-    .replace(',', '.');
+  str = str.replace(/[^0-9,.-]/g, '');
 
-  const num = Number(cleaned);
+  const lastComma = str.lastIndexOf(',');
+  const lastDot = str.lastIndexOf('.');
+
+  if (lastComma > lastDot) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (lastDot > lastComma) {
+    str = str.replace(/,/g, '');
+  } else {
+    str = str.replace(',', '.');
+  }
+
+  const num = Number(str);
   return Number.isFinite(num) ? num : 0;
 }
 
@@ -118,10 +127,10 @@ export default function Dashboard() {
         console.log('Filas parseadas:', body);
 
         const parsed = body
-          .filter((r) => r && r.length >= 2)
+          .filter((r) => r && r.length >= 11)
           .map((r) => ({
             semaforo: r[0] || '',
-            mes: r[1] || '',
+            mes: (r[1] || '').trim(),
             diasTrabajados: safeNumber(r[2]),
             diasNoTrabajados: safeNumber(r[3]),
             rendimiento: safePercent(r[4]),
@@ -132,7 +141,7 @@ export default function Dashboard() {
             valorDia: safeNumber(r[9]),
             gananciaAnual: safeNumber(r[10]),
           }))
-          .filter((row) => row.mes !== '');
+          .filter((row) => row.mes !== '' && row.mes.toLowerCase() !== 'mes');
 
         console.log('Objeto final:', parsed);
 
