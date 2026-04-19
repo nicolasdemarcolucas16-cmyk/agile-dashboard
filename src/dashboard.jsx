@@ -3,9 +3,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 const CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vQZ0AfEXG4l5_houa3nHrRMwmM-vbmdgkOOQG1QqQM20Wkka8juV5aUQ4a71H-mRjTNgGzikQrL7lEy/pub?gid=1940878227&single=true&output=csv';
 
-const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || '1234';
-const INVESTMENT_TOTAL = 10000000; // podés cambiarlo más adelante
-
 function safeNumber(value) {
   if (value === null || value === undefined) return 0;
 
@@ -67,54 +64,13 @@ function parseCsvLine(line) {
 function getSemaforoInfo(semaforo, rendimiento) {
   const text = String(semaforo || '').toLowerCase();
 
-  if (text.includes('verde') || rendimiento >= 80) {
+  if (text.includes('verde') || rendimiento >= 85) {
     return { label: 'Verde', className: 'green' };
   }
-  if (text.includes('amar') || rendimiento >= 50) {
+  if (text.includes('amar') || rendimiento >= 60) {
     return { label: 'Amarillo', className: 'yellow' };
   }
   return { label: 'Rojo', className: 'red' };
-}
-
-function getDebtStatus(debt) {
-  const value = safeNumber(debt);
-
-  if (value <= 0) {
-    return {
-      label: 'Al día',
-      className: 'green',
-      hint: 'Sin deuda pendiente',
-    };
-  }
-
-  if (value < 300000) {
-    return {
-      label: 'Atraso menor a una semana',
-      className: 'yellow',
-      hint: 'Debe menos de $300.000',
-    };
-  }
-
-  if (value <= 600000) {
-    return {
-      label: 'Atraso mayor a una semana',
-      className: 'orange',
-      hint: 'Debe entre $300.000 y $600.000',
-    };
-  }
-
-  return {
-    label: 'Atraso crítico',
-    className: 'red',
-    hint: 'Debe más de $600.000',
-  };
-}
-
-function formatCurrency(value) {
-  return `$${safeNumber(value).toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function StatCard({ title, value, hint, accent = 'blue' }) {
@@ -139,8 +95,8 @@ function BarsComparison({ data, maxValue }) {
         return (
           <div key={`${item.mes}-${index}`} className="bar-group">
             <div className="bar-values">
-              <span>{formatCurrency(ingresos)}</span>
-              <span>{formatCurrency(gastos)}</span>
+              <span>${ingresos.toLocaleString('es-AR')}</span>
+              <span>${gastos.toLocaleString('es-AR')}</span>
             </div>
             <div className="bar-pair">
               <div className="bar ingreso" style={{ height: `${ingresoHeight}px` }} />
@@ -156,25 +112,6 @@ function BarsComparison({ data, maxValue }) {
       })}
     </div>
   );
-}
-
-function TrendBadge({ label, value, positiveIsGood = true }) {
-  if (value === null || Number.isNaN(value)) {
-    return <div className="trend neutral">{label}: Sin dato</div>;
-  }
-
-  const isPositive = value >= 0;
-  const good = positiveIsGood ? isPositive : !isPositive;
-
-  return (
-    <div className={`trend ${good ? 'good' : 'bad'}`}>
-      {label}: {isPositive ? '▲' : '▼'} {Math.abs(value).toFixed(1)}%
-    </div>
-  );
-}
-
-function AlertBanner({ type, text }) {
-  return <div className={`alert-banner ${type}`}>{text}</div>;
 }
 
 export default function Dashboard() {
@@ -246,8 +183,7 @@ export default function Dashboard() {
         safeNumber(row.gananciaMensual) > 0 ||
         safeNumber(row.diasTrabajados) > 0 ||
         safeNumber(row.gananciaNetaMensual) > 0 ||
-        safeNumber(row.gastosVehiculo) > 0 ||
-        safeNumber(row.pagosChofer) > 0
+        safeNumber(row.gastosVehiculo) > 0
     );
   }, [rows]);
 
@@ -270,7 +206,7 @@ export default function Dashboard() {
     return null;
   }, [rowsWithData, current]);
 
-  const annualIncome = useMemo(() => {
+  const annualGain = useMemo(() => {
     return rowsWithData.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0);
   }, [rowsWithData]);
 
@@ -282,16 +218,13 @@ export default function Dashboard() {
     return rowsWithData.reduce((acc, row) => acc + safeNumber(row.diasTrabajados), 0);
   }, [rowsWithData]);
 
-  const annualPayments = useMemo(() => {
-    return rowsWithData.reduce((acc, row) => acc + safeNumber(row.pagosChofer), 0);
-  }, [rowsWithData]);
-
-  const accumulatedDebt = useMemo(() => {
-    return rowsWithData.reduce(
-      (acc, row) => acc + (safeNumber(row.gananciaMensual) - safeNumber(row.pagosChofer)),
-      0
-    );
-  }, [rowsWithData]);
+  const variation = useMemo(() => {
+    if (!current || !previous) return null;
+    const currentGain = safeNumber(current.gananciaMensual);
+    const previousGain = safeNumber(previous.gananciaMensual);
+    if (previousGain === 0) return null;
+    return ((currentGain - previousGain) / previousGain) * 100;
+  }, [current, previous]);
 
   const averagePerDay = useMemo(() => {
     if (!current) return 0;
@@ -308,160 +241,8 @@ export default function Dashboard() {
     );
   }, [rowsWithData]);
 
-  const monthlyVariation = useMemo(() => {
-    if (!current || !previous) return null;
-    const currentGain = safeNumber(current.gananciaMensual);
-    const previousGain = safeNumber(previous.gananciaMensual);
-    if (previousGain === 0) return null;
-    return ((currentGain - previousGain) / previousGain) * 100;
-  }, [current, previous]);
-
-  const rolling3 = useMemo(() => {
-    if (!rowsWithData.length) return [];
-    return rowsWithData.slice(-3);
-  }, [rowsWithData]);
-
-  const averageLast3Months = useMemo(() => {
-    if (!rolling3.length) return 0;
-    return rolling3.reduce((acc, row) => acc + safeNumber(row.gananciaMensual), 0) / rolling3.length;
-  }, [rolling3]);
-
-  const trendVsAverage3 = useMemo(() => {
-    if (!current || averageLast3Months === 0) return null;
-    return ((safeNumber(current.gananciaMensual) - averageLast3Months) / averageLast3Months) * 100;
-  }, [current, averageLast3Months]);
-
-  const projectedMonthIncome = useMemo(() => {
-    if (!current) return 0;
-    const worked = safeNumber(current.diasTrabajados);
-    const notWorked = safeNumber(current.diasNoTrabajados);
-    const totalKnown = worked + notWorked;
-
-    if (worked === 0) return 0;
-    if (totalKnown > 0) {
-      return averagePerDay * totalKnown;
-    }
-    return averagePerDay * worked;
-  }, [current, averagePerDay]);
-
-  const currentDebt = useMemo(() => {
-    if (!current) return 0;
-    return safeNumber(current.gananciaMensual) - safeNumber(current.pagosChofer);
-  }, [current]);
-
-  const currentNetCollected = useMemo(() => {
-    if (!current) return 0;
-    return safeNumber(current.pagosChofer) - safeNumber(current.gastosVehiculo);
-  }, [current]);
-
-  const currentPending = useMemo(() => {
-    if (!current) return 0;
-    return Math.max(0, safeNumber(current.gananciaMensual) - safeNumber(current.pagosChofer));
-  }, [current]);
-
-  const paidRatio = useMemo(() => {
-    if (!current) return 0;
-    const generated = safeNumber(current.gananciaMensual);
-    if (generated <= 0) return 0;
-    return (safeNumber(current.pagosChofer) / generated) * 100;
-  }, [current]);
-
-  const roiRecovered = useMemo(() => {
-    return annualPayments - annualExpenses;
-  }, [annualPayments, annualExpenses]);
-
-  const roiPercent = useMemo(() => {
-    if (INVESTMENT_TOTAL <= 0) return 0;
-    return (roiRecovered / INVESTMENT_TOTAL) * 100;
-  }, [roiRecovered]);
-
-  const investmentRemaining = useMemo(() => {
-    return Math.max(0, INVESTMENT_TOTAL - roiRecovered);
-  }, [roiRecovered]);
-
-  const semaforo = current ? getSemaforoInfo(current.semaforo, current.rendimiento) : null;
-  const debtStatus = getDebtStatus(currentDebt);
-  const accumulatedDebtStatus = getDebtStatus(accumulatedDebt);
-
-  const alerts = useMemo(() => {
-    if (!current) return [];
-
-    const result = [];
-    const rendimiento = safeNumber(current.rendimiento);
-    const gastos = safeNumber(current.gastosVehiculo);
-    const ingreso = safeNumber(current.gananciaMensual);
-    const debt = safeNumber(currentDebt);
-
-    if (rendimiento < 50) {
-      result.push({
-        type: 'danger',
-        text: `Rendimiento bajo en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
-      });
-    } else if (rendimiento < 80) {
-      result.push({
-        type: 'warning',
-        text: `Rendimiento intermedio en ${current.mes}: ${rendimiento.toFixed(2)}%.`,
-      });
-    }
-
-    if (debt > 600000) {
-      result.push({
-        type: 'danger',
-        text: `El chofer tiene un atraso crítico en ${current.mes}: ${formatCurrency(debt)}.`,
-      });
-    } else if (debt >= 300000) {
-      result.push({
-        type: 'warning',
-        text: `El chofer tiene un atraso mayor a una semana en ${current.mes}: ${formatCurrency(debt)}.`,
-      });
-    } else if (debt > 0) {
-      result.push({
-        type: 'warning',
-        text: `El chofer tiene un atraso menor a una semana en ${current.mes}: ${formatCurrency(debt)}.`,
-      });
-    }
-
-    if (incomeIsBestMonth(rowsWithData, current)) {
-      result.push({
-        type: 'success',
-        text: `${current.mes} es el mejor mes del historial por ingreso.`,
-      });
-    }
-
-    if (monthlyVariation !== null && monthlyVariation < -10) {
-      result.push({
-        type: 'danger',
-        text: `La ganancia cayó ${Math.abs(monthlyVariation).toFixed(1)}% vs ${previous?.mes}.`,
-      });
-    }
-
-    if (previous && gastos > safeNumber(previous.gastosVehiculo) * 1.25) {
-      result.push({
-        type: 'warning',
-        text: `Los gastos subieron fuerte respecto a ${previous.mes}.`,
-      });
-    }
-
-    if (result.length === 0 && ingreso > 0) {
-      result.push({
-        type: 'success',
-        text: `Mes estable. Seguimiento correcto de ${current.mes}.`,
-      });
-    }
-
-    return result;
-  }, [current, monthlyVariation, previous, rowsWithData, currentDebt]);
-
-  function incomeIsBestMonth(data, selected) {
-    if (!selected || !data.length) return false;
-    const best = data.reduce((a, b) =>
-      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-    );
-    return best.mes === selected.mes;
-  }
-
   const handleLogin = () => {
-    if (password === APP_PASSWORD) {
+    if (password === '1234') {
       setIsLogged(true);
       setError('');
     } else {
@@ -485,12 +266,14 @@ export default function Dashboard() {
             placeholder="Contraseña"
           />
           <button onClick={handleLogin}>Ingresar</button>
-          <div className="login-help">La contraseña ya no está fija en el código.</div>
+          <div className="login-help">Contraseña actual: 1234</div>
           {error ? <div className="error">{error}</div> : null}
         </div>
       </div>
     );
   }
+
+  const semaforo = current ? getSemaforoInfo(current.semaforo, current.rendimiento) : null;
 
   return (
     <div className="page">
@@ -504,7 +287,7 @@ export default function Dashboard() {
         }
         .page {
           padding: 20px;
-          max-width: 1320px;
+          max-width: 1280px;
           margin: 0 auto;
         }
         .topbar {
@@ -597,17 +380,10 @@ export default function Dashboard() {
         .accent-green { border-color: #1c8d63; }
         .accent-red { border-color: #a53b4f; }
         .accent-yellow { border-color: #b2892c; }
-        .accent-orange { border-color: #d97706; }
 
         .grid-two {
           display: grid;
           grid-template-columns: 1.2fr 0.8fr;
-          gap: 16px;
-          margin-bottom: 18px;
-        }
-        .grid-two-equal {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
           gap: 16px;
           margin-bottom: 18px;
         }
@@ -701,62 +477,6 @@ export default function Dashboard() {
         .status-dot.red { background: #ff5f7a; }
         .status-dot.yellow { background: #ffd166; }
         .status-dot.green { background: #32d296; }
-        .status-dot.orange { background: #fb923c; }
-
-        .trend-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-        .trend {
-          border-radius: 14px;
-          padding: 14px;
-          font-weight: 700;
-          border: 1px solid transparent;
-        }
-        .trend.good {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.3);
-          color: #86efac;
-        }
-        .trend.bad {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.3);
-          color: #fca5a5;
-        }
-        .trend.neutral {
-          background: rgba(96, 165, 250, 0.12);
-          border-color: rgba(96, 165, 250, 0.3);
-          color: #93c5fd;
-        }
-
-        .alerts {
-          display: grid;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-        .alert-banner {
-          padding: 14px 16px;
-          border-radius: 14px;
-          font-weight: 600;
-          border: 1px solid transparent;
-        }
-        .alert-banner.success {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.35);
-          color: #86efac;
-        }
-        .alert-banner.warning {
-          background: rgba(245, 158, 11, 0.12);
-          border-color: rgba(245, 158, 11, 0.35);
-          color: #fcd34d;
-        }
-        .alert-banner.danger {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.35);
-          color: #fca5a5;
-        }
 
         .table-wrap {
           overflow-x: auto;
@@ -823,10 +543,214 @@ export default function Dashboard() {
           .stats-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
-          .grid-two,
-          .grid-two-equal,
-          .trend-row {
+          .grid-two {
             grid-template-columns: 1fr;
           }
         }
-       
+        @media (max-width: 700px) {
+          .page {
+            padding: 14px;
+          }
+          .stats-grid {
+            grid-template-columns: 1fr;
+          }
+          .topbar h1 {
+            font-size: 24px;
+          }
+          .stat-value {
+            font-size: 24px;
+          }
+        }
+      `}</style>
+
+      <div className="topbar">
+        <div>
+          <h1>AGILE DASHBOARD PRO</h1>
+          <p>Actualización automática desde Google Sheets</p>
+        </div>
+        <div className="topbar-actions">
+          <div className="pill">Modo oscuro • iPhone y PC</div>
+        </div>
+      </div>
+
+      {error ? <div className="error-banner">{error}</div> : null}
+
+      <div className="filters">
+        <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+          <option value="ultimo">Último mes con datos</option>
+          {availableMonths.map((month) => (
+            <option key={month} value={month}>
+              {month}
+            </option>
+          ))}
+        </select>
+
+        <button onClick={() => setRefreshKey((prev) => prev + 1)}>
+          Actualizar datos
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="card">
+          <h2>Cargando datos...</h2>
+          <p>Esperando respuesta de la hoja Ganancias.</p>
+        </div>
+      ) : current ? (
+        <>
+          <div className="stats-grid">
+            <StatCard
+              title="Ingreso del mes"
+              value={`$${safeNumber(current.gananciaMensual).toLocaleString('es-AR')}`}
+              hint={current.mes}
+              accent="blue"
+            />
+            <StatCard
+              title="Gastos del mes"
+              value={`$${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}`}
+              accent="red"
+            />
+            <StatCard
+              title="Ganancia neta"
+              value={`$${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}`}
+              accent="green"
+            />
+            <StatCard
+              title="Días trabajados"
+              value={String(safeNumber(current.diasTrabajados))}
+              accent="yellow"
+            />
+            <StatCard
+              title="Rendimiento"
+              value={`${safeNumber(current.rendimiento).toFixed(2)}%`}
+              accent="blue"
+            />
+            <StatCard
+              title="Vs mes anterior"
+              value={variation === null ? 'Sin dato' : `${variation.toFixed(1)}%`}
+              hint={previous ? `Comparado con ${previous.mes}` : ''}
+              accent={variation !== null && variation >= 0 ? 'green' : 'red'}
+            />
+          </div>
+
+          <div className="grid-two">
+            <div className="card">
+              <h2>Ingresos vs gastos por mes</h2>
+              <BarsComparison data={rowsWithData} maxValue={maxChartValue} />
+            </div>
+
+            <div className="card">
+              <h2>Mes seleccionado</h2>
+              <div className="detail-list">
+                <div>
+                  <span>Mes</span>
+                  <strong>{current.mes || '-'}</strong>
+                </div>
+                <div>
+                  <span>Semáforo</span>
+                  <strong className="status-badge">
+                    <span className={`status-dot ${semaforo.className}`} />
+                    {semaforo.label}
+                  </strong>
+                </div>
+                <div>
+                  <span>Pagos del chofer</span>
+                  <strong>${safeNumber(current.pagosChofer).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Gastos del vehículo</span>
+                  <strong>${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Ganancia neta mensual</span>
+                  <strong>${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Valor día</span>
+                  <strong>${safeNumber(current.valorDia).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Promedio por día</span>
+                  <strong>${safeNumber(averagePerDay).toLocaleString('es-AR')}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="stats-grid" style={{ marginBottom: 18 }}>
+            <StatCard
+              title="Ingreso anual acumulado"
+              value={`$${annualGain.toLocaleString('es-AR')}`}
+              accent="blue"
+            />
+            <StatCard
+              title="Gastos anuales"
+              value={`$${annualExpenses.toLocaleString('es-AR')}`}
+              accent="red"
+            />
+            <StatCard
+              title="Días trabajados anuales"
+              value={String(annualDays)}
+              accent="yellow"
+            />
+            <StatCard
+              title="Meses con datos"
+              value={String(rowsWithData.length)}
+              accent="green"
+            />
+            <StatCard
+              title="Mejor mes"
+              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
+                safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
+              ).mes : '-'}
+              accent="green"
+            />
+            <StatCard
+              title="Peor mes"
+              value={rowsWithData.length ? rowsWithData.reduce((a, b) =>
+                safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
+              ).mes : '-'}
+              accent="red"
+            />
+          </div>
+
+          <div className="card">
+            <h2>Resumen mensual</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mes</th>
+                    <th>Días trabajados</th>
+                    <th>Días no trabajados</th>
+                    <th>Rendimiento</th>
+                    <th>Pagos chofer</th>
+                    <th>Gastos</th>
+                    <th>Ganancia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowsWithData.map((row, index) => (
+                    <tr key={`${row.mes}-${index}`}>
+                      <td>{row.mes || '-'}</td>
+                      <td>{safeNumber(row.diasTrabajados)}</td>
+                      <td>{safeNumber(row.diasNoTrabajados)}</td>
+                      <td>{safeNumber(row.rendimiento).toFixed(2)}%</td>
+                      <td>${safeNumber(row.pagosChofer).toLocaleString('es-AR')}</td>
+                      <td>${safeNumber(row.gastosVehiculo).toLocaleString('es-AR')}</td>
+                      <td>${safeNumber(row.gananciaMensual).toLocaleString('es-AR')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="card">
+          <h2>Sin datos para mostrar</h2>
+          <p>La app cargó, pero no encontró filas válidas en la hoja Ganancias.</p>
+        </div>
+      )}
+    </div>
+  );
+}
