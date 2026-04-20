@@ -183,7 +183,8 @@ export default function Dashboard() {
         safeNumber(row.gananciaMensual) > 0 ||
         safeNumber(row.diasTrabajados) > 0 ||
         safeNumber(row.gananciaNetaMensual) > 0 ||
-        safeNumber(row.gastosVehiculo) > 0
+        safeNumber(row.gastosVehiculo) > 0 ||
+        safeNumber(row.pagosChofer) > 0
     );
   }, [rows]);
 
@@ -218,6 +219,17 @@ export default function Dashboard() {
     return rowsWithData.reduce((acc, row) => acc + safeNumber(row.diasTrabajados), 0);
   }, [rowsWithData]);
 
+  const totalGeneradoHistorico = useMemo(() => {
+    return rowsWithData.reduce(
+      (acc, row) => acc + safeNumber(row.diasTrabajados) * safeNumber(row.valorDia),
+      0
+    );
+  }, [rowsWithData]);
+
+  const totalPagadoHistorico = useMemo(() => {
+    return rowsWithData.reduce((acc, row) => acc + safeNumber(row.pagosChofer), 0);
+  }, [rowsWithData]);
+
   const variation = useMemo(() => {
     if (!current || !previous) return null;
     const currentGain = safeNumber(current.gananciaMensual);
@@ -250,22 +262,36 @@ export default function Dashboard() {
     return averagePerDay * totalExpected;
   }, [current, averagePerDay]);
 
+  const generadoMesActual = useMemo(() => {
+    if (!current) return 0;
+    return safeNumber(current.diasTrabajados) * safeNumber(current.valorDia);
+  }, [current]);
+
   const gananciaReal = useMemo(() => {
     if (!current) return 0;
     return safeNumber(current.pagosChofer) - safeNumber(current.gastosVehiculo);
   }, [current]);
 
-  const pendienteCobrar = useMemo(() => {
+  const pendienteMesActual = useMemo(() => {
     if (!current) return 0;
-    return Math.max(0, safeNumber(current.gananciaMensual) - safeNumber(current.pagosChofer));
-  }, [current]);
+    return Math.max(0, generadoMesActual - safeNumber(current.pagosChofer));
+  }, [current, generadoMesActual]);
+
+  const pendienteAcumulado = useMemo(() => {
+    const total = rowsWithData.reduce((acc, row) => {
+      const generado = safeNumber(row.diasTrabajados) * safeNumber(row.valorDia);
+      const pagado = safeNumber(row.pagosChofer);
+      return acc + (generado - pagado);
+    }, 0);
+
+    return Math.max(0, total);
+  }, [rowsWithData]);
 
   const porcentajeCobrado = useMemo(() => {
     if (!current) return 0;
-    const generado = safeNumber(current.gananciaMensual);
-    if (generado === 0) return 0;
-    return (safeNumber(current.pagosChofer) / generado) * 100;
-  }, [current]);
+    if (generadoMesActual === 0) return 0;
+    return (safeNumber(current.pagosChofer) / generadoMesActual) * 100;
+  }, [current, generadoMesActual]);
 
   const handleLogin = () => {
     if (password === '1234') {
@@ -647,16 +673,16 @@ export default function Dashboard() {
               accent="green"
             />
             <StatCard
-              title="Pendiente por cobrar"
-              value={`$${safeNumber(pendienteCobrar).toLocaleString('es-AR')}`}
+              title="Pendiente del mes"
+              value={`$${safeNumber(pendienteMesActual).toLocaleString('es-AR')}`}
               hint={`${safeNumber(porcentajeCobrado).toFixed(1)}% cobrado`}
               accent="yellow"
             />
             <StatCard
-              title="Proyección del mes"
-              value={`$${safeNumber(projectedMonth).toLocaleString('es-AR')}`}
-              hint="Estimación"
-              accent="green"
+              title="Pendiente acumulado"
+              value={`$${safeNumber(pendienteAcumulado).toLocaleString('es-AR')}`}
+              hint="Todos los meses"
+              accent="yellow"
             />
           </div>
 
@@ -681,6 +707,10 @@ export default function Dashboard() {
                   </strong>
                 </div>
                 <div>
+                  <span>Generado del mes</span>
+                  <strong>${safeNumber(generadoMesActual).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
                   <span>Pagos del chofer</span>
                   <strong>${safeNumber(current.pagosChofer).toLocaleString('es-AR')}</strong>
                 </div>
@@ -689,16 +719,16 @@ export default function Dashboard() {
                   <strong>${safeNumber(current.gastosVehiculo).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
-                  <span>Ganancia neta mensual</span>
-                  <strong>${safeNumber(current.gananciaNetaMensual).toLocaleString('es-AR')}</strong>
-                </div>
-                <div>
                   <span>Ganancia real al momento</span>
                   <strong>${safeNumber(gananciaReal).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
-                  <span>Pendiente por cobrar</span>
-                  <strong>${safeNumber(pendienteCobrar).toLocaleString('es-AR')}</strong>
+                  <span>Pendiente del mes</span>
+                  <strong>${safeNumber(pendienteMesActual).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Pendiente acumulado</span>
+                  <strong>${safeNumber(pendienteAcumulado).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
                   <span>Valor día</span>
@@ -707,6 +737,10 @@ export default function Dashboard() {
                 <div>
                   <span>Promedio por día</span>
                   <strong>${safeNumber(averagePerDay).toLocaleString('es-AR')}</strong>
+                </div>
+                <div>
+                  <span>Proyección del mes</span>
+                  <strong>${safeNumber(projectedMonth).toLocaleString('es-AR')}</strong>
                 </div>
                 <div>
                   <span>Vs mes anterior</span>
@@ -719,6 +753,16 @@ export default function Dashboard() {
           </div>
 
           <div className="stats-grid" style={{ marginBottom: 18 }}>
+            <StatCard
+              title="Total generado histórico"
+              value={`$${safeNumber(totalGeneradoHistorico).toLocaleString('es-AR')}`}
+              accent="blue"
+            />
+            <StatCard
+              title="Total pagado histórico"
+              value={`$${safeNumber(totalPagadoHistorico).toLocaleString('es-AR')}`}
+              accent="green"
+            />
             <StatCard
               title="Ingreso anual acumulado"
               value={`$${annualGain.toLocaleString('es-AR')}`}
@@ -739,28 +783,6 @@ export default function Dashboard() {
               value={String(rowsWithData.length)}
               accent="green"
             />
-            <StatCard
-              title="Mejor mes"
-              value={
-                rowsWithData.length
-                  ? rowsWithData.reduce((a, b) =>
-                      safeNumber(a.gananciaMensual) >= safeNumber(b.gananciaMensual) ? a : b
-                    ).mes
-                  : '-'
-              }
-              accent="green"
-            />
-            <StatCard
-              title="Peor mes"
-              value={
-                rowsWithData.length
-                  ? rowsWithData.reduce((a, b) =>
-                      safeNumber(a.gananciaMensual) <= safeNumber(b.gananciaMensual) ? a : b
-                    ).mes
-                  : '-'
-              }
-              accent="red"
-            />
           </div>
 
           <div className="card">
@@ -773,20 +795,18 @@ export default function Dashboard() {
                     <th>Días trabajados</th>
                     <th>Días no trabajados</th>
                     <th>Rendimiento</th>
+                    <th>Generado</th>
                     <th>Pagos chofer</th>
                     <th>Gastos</th>
-                    <th>Ganancia</th>
                     <th>Ganancia real</th>
                     <th>Pendiente</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rowsWithData.map((row, index) => {
+                    const generado = safeNumber(row.diasTrabajados) * safeNumber(row.valorDia);
                     const real = safeNumber(row.pagosChofer) - safeNumber(row.gastosVehiculo);
-                    const pendiente = Math.max(
-                      0,
-                      safeNumber(row.gananciaMensual) - safeNumber(row.pagosChofer)
-                    );
+                    const pendiente = Math.max(0, generado - safeNumber(row.pagosChofer));
 
                     return (
                       <tr key={`${row.mes}-${index}`}>
@@ -794,9 +814,9 @@ export default function Dashboard() {
                         <td>{safeNumber(row.diasTrabajados)}</td>
                         <td>{safeNumber(row.diasNoTrabajados)}</td>
                         <td>{safeNumber(row.rendimiento).toFixed(2)}%</td>
+                        <td>${safeNumber(generado).toLocaleString('es-AR')}</td>
                         <td>${safeNumber(row.pagosChofer).toLocaleString('es-AR')}</td>
                         <td>${safeNumber(row.gastosVehiculo).toLocaleString('es-AR')}</td>
-                        <td>${safeNumber(row.gananciaMensual).toLocaleString('es-AR')}</td>
                         <td>${safeNumber(real).toLocaleString('es-AR')}</td>
                         <td>${safeNumber(pendiente).toLocaleString('es-AR')}</td>
                       </tr>
